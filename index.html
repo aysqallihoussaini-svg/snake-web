@@ -362,7 +362,7 @@
       muted: '#93a7c6'
     };
 
-    let snake, dir, nextDir, food, score, best, gameOver, paused, loopTimer, stepMs, lastTime, flashTime;
+    let snake, dir, nextDir, food, score, best, gameOver, paused, loopTimer = 0, stepMs, lastTime = 0, flashTime;
 
     function loadBest() {
       const n = Number(localStorage.getItem('snake-web-best') || 0);
