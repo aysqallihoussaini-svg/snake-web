@@ -284,8 +284,8 @@
         </div>
 
         <div class="stats">
-          <div class="stat"><span>Score</span><strong id="score">0</strong></div>
-          <div class="stat"><span>High Score</span><strong id="best">0</strong></div>
+          <div class="stat"><span>Score J1</span><strong id="score">0</strong></div>
+          <div class="stat"><span id="bestLabel">High Score</span><strong id="best">0</strong></div>
           <div class="stat"><span>Vitesse</span><strong id="speed">1.0x</strong></div>
         </div>
       </section>
@@ -293,6 +293,13 @@
       <aside class="side-card">
         <div class="panel">
           <h2>Jouer</h2>
+          <div class="hint" style="margin: 0 0 10px;">
+            Mode:
+            <select id="modeSelect" class="secondary" style="padding: 8px 10px; border-radius: 10px;">
+              <option value="solo">Solo</option>
+              <option value="duo">2 Joueurs</option>
+            </select>
+          </div>
           <div class="controls">
             <button id="playBtn">Jouer / Rejouer</button>
             <button id="pauseBtn" class="secondary">Pause</button>
@@ -303,10 +310,8 @@
         <div class="panel">
           <h2>Commandes clavier</h2>
           <ul>
-            <li>Z / flèche haut = monter</li>
-            <li>S / flèche bas = descendre</li>
-            <li>Q / flèche gauche = gauche</li>
-            <li>D / flèche droite = droite</li>
+            <li>J1: Z = haut, S = bas, Q = gauche, D = droite</li>
+            <li>J2 (mode 2 joueurs): flèches directionnelles</li>
             <li>Espace = pause</li>
             <li>R = recommencer</li>
           </ul>
@@ -337,10 +342,12 @@
     const ctx = canvas.getContext('2d');
     const scoreEl = document.getElementById('score');
     const bestEl = document.getElementById('best');
+    const bestLabelEl = document.getElementById('bestLabel');
     const speedEl = document.getElementById('speed');
     const stateText = document.getElementById('stateText');
     const playBtn = document.getElementById('playBtn');
     const pauseBtn = document.getElementById('pauseBtn');
+    const modeSelect = document.getElementById('modeSelect');
 
     const cols = 20;
     const rows = 15;
@@ -362,7 +369,9 @@
       muted: '#93a7c6'
     };
 
-    let snake, dir, nextDir, food, score, best, gameOver, paused, loopTimer = 0, stepMs, lastTime = 0, flashTime;
+    let mode = 'solo';
+    let snake1, snake2, dir1, dir2, nextDir1, nextDir2, food, score1, score2, best, gameOver, paused, loopTimer = 0, stepMs, lastTime = 0, flashTime;
+    let gameOverText = 'Game Over';
     let tickerId = null;
 
     function loadBest() {
@@ -375,15 +384,27 @@
     }
 
     function resetGame() {
-      snake = [
+      mode = modeSelect.value;
+      snake1 = [
         { x: 10, y: 7 },
         { x: 9, y: 7 },
         { x: 8, y: 7 }
       ];
-      dir = { x: 1, y: 0 };
-      nextDir = { x: 1, y: 0 };
-      score = 0;
+      snake2 = mode === 'duo'
+        ? [
+            { x: 10, y: 11 },
+            { x: 11, y: 11 },
+            { x: 12, y: 11 }
+          ]
+        : [];
+      dir1 = { x: 1, y: 0 };
+      nextDir1 = { x: 1, y: 0 };
+      dir2 = { x: -1, y: 0 };
+      nextDir2 = { x: -1, y: 0 };
+      score1 = 0;
+      score2 = 0;
       gameOver = false;
+      gameOverText = 'Game Over';
       paused = false;
       stepMs = 120;
       flashTime = 0;
@@ -396,15 +417,21 @@
     }
 
     function syncUI() {
-      scoreEl.textContent = score;
-      bestEl.textContent = best;
+      scoreEl.textContent = score1;
+      if (mode === 'duo') {
+        bestLabelEl.textContent = 'Score J2';
+        bestEl.textContent = score2;
+      } else {
+        bestLabelEl.textContent = 'High Score';
+        bestEl.textContent = best;
+      }
       speedEl.textContent = (100 / stepMs).toFixed(1) + 'x';
       if (gameOver) {
-        stateText.innerHTML = '<span class="gameover">Game Over</span>';
+        stateText.innerHTML = '<span class="gameover">' + gameOverText + '</span>';
       } else if (paused) {
         stateText.textContent = 'Pause';
       } else {
-        stateText.textContent = score === 0 ? 'Prêt' : 'En jeu';
+        stateText.textContent = (score1 + score2) === 0 ? 'Prêt' : 'En jeu';
       }
     }
 
@@ -420,7 +447,7 @@
     }
 
     function snakeHas(cellPos) {
-      return snake.some(part => cellEq(part, cellPos));
+      return snake1.some(part => cellEq(part, cellPos)) || snake2.some(part => cellEq(part, cellPos));
     }
 
     function spawnFood() {
@@ -446,44 +473,95 @@
       return a.x === -b.x && a.y === -b.y;
     }
 
-    function setDirection(dx, dy) {
+    function setDirection(player, dx, dy) {
       const wanted = { x: dx, y: dy };
-      if (!opposite(wanted, dir)) {
-        nextDir = wanted;
+      if (player === 1) {
+        if (!opposite(wanted, dir1)) {
+          nextDir1 = wanted;
+        }
+      } else if (player === 2 && mode === 'duo') {
+        if (!opposite(wanted, dir2)) {
+          nextDir2 = wanted;
+        }
       }
+    }
+
+    function collidesWithBody(next, snake, eats) {
+      const bodyCheckLength = eats ? snake.length : snake.length - 1;
+      for (let i = 0; i < bodyCheckLength; i++) {
+        if (cellEq(next, snake[i])) return true;
+      }
+      return false;
     }
 
     function step() {
       if (gameOver || paused) return;
 
-      dir = nextDir;
-      const head = snake[0];
-      const next = wrap({ x: head.x + dir.x, y: head.y + dir.y });
-      const eats = cellEq(next, food);
-      const bodyCheckLength = eats ? snake.length : snake.length - 1;
+      dir1 = nextDir1;
+      if (mode === 'duo') {
+        dir2 = nextDir2;
+      }
 
-      for (let i = 0; i < bodyCheckLength; i++) {
-        if (cellEq(next, snake[i])) {
-          gameOver = true;
-          if (score > best) {
-            best = score;
+      const next1 = wrap({ x: snake1[0].x + dir1.x, y: snake1[0].y + dir1.y });
+      const eats1 = cellEq(next1, food);
+
+      let next2 = null;
+      let eats2 = false;
+      if (mode === 'duo') {
+        next2 = wrap({ x: snake2[0].x + dir2.x, y: snake2[0].y + dir2.y });
+        eats2 = cellEq(next2, food);
+      }
+
+      const p1HitsSelf = collidesWithBody(next1, snake1, eats1);
+      const p1HitsP2 = mode === 'duo' && collidesWithBody(next1, snake2, eats1);
+      const p2HitsSelf = mode === 'duo' && collidesWithBody(next2, snake2, eats2);
+      const p2HitsP1 = mode === 'duo' && collidesWithBody(next2, snake1, eats2);
+      const headCrash = mode === 'duo' && cellEq(next1, next2);
+
+      if (p1HitsSelf || p1HitsP2 || p2HitsSelf || p2HitsP1 || headCrash) {
+        gameOver = true;
+        if (mode === 'duo') {
+          if (headCrash || ((p1HitsSelf || p1HitsP2) && (p2HitsSelf || p2HitsP1))) {
+            gameOverText = 'Egalite';
+          } else if (p1HitsSelf || p1HitsP2) {
+            gameOverText = 'Joueur 2 gagne';
+          } else {
+            gameOverText = 'Joueur 1 gagne';
+          }
+        } else {
+          gameOverText = 'Game Over';
+          if (score1 > best) {
+            best = score1;
             saveBest(best);
           }
-          syncUI();
-          return;
+        }
+        syncUI();
+        return;
+      }
+
+      snake1.unshift(next1);
+      if (!eats1) {
+        snake1.pop();
+      } else {
+        score1 += 10;
+        stepMs = Math.max(60, stepMs - 2);
+      }
+
+      if (mode === 'duo') {
+        snake2.unshift(next2);
+        if (!eats2) {
+          snake2.pop();
+        } else {
+          score2 += 10;
+          stepMs = Math.max(60, stepMs - 2);
         }
       }
 
-      snake.unshift(next);
-      if (!eats) {
-        snake.pop();
-      } else {
-        score += 10;
-        if (score > best) {
-          best = score;
+      if (eats1 || eats2) {
+        if (mode === 'solo' && score1 > best) {
+          best = score1;
           saveBest(best);
         }
-        stepMs = Math.max(60, stepMs - 2);
         spawnFood();
       }
       syncUI();
@@ -525,7 +603,7 @@
       ctx.closePath();
     }
 
-    function drawSnake() {
+    function drawSingleSnake(snake, headColor, bodyColor, endColor) {
       snake.forEach((part, index) => {
         const px = part.x * cell;
         const py = part.y * cell;
@@ -533,8 +611,8 @@
         const w = cell - pad * 2;
         const h = cell - pad * 2;
         const grad = ctx.createLinearGradient(px, py, px + cell, py + cell);
-        grad.addColorStop(0, index === 0 ? '#9cfbe0' : colors.snake2);
-        grad.addColorStop(1, '#1f9d6d');
+        grad.addColorStop(0, index === 0 ? headColor : bodyColor);
+        grad.addColorStop(1, endColor);
 
         ctx.shadowColor = 'rgba(0,0,0,0.35)';
         ctx.shadowBlur = 12;
@@ -553,6 +631,13 @@
           ctx.fill();
         }
       });
+    }
+
+    function drawSnake() {
+      drawSingleSnake(snake1, '#9cfbe0', colors.snake2, '#1f9d6d');
+      if (mode === 'duo') {
+        drawSingleSnake(snake2, '#ffd59a', '#ff9f5d', '#d86a26');
+      }
     }
 
     function drawFood() {
@@ -607,13 +692,13 @@
         ctx.fillStyle = '#ff8b8b';
         ctx.font = '800 40px Inter, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('GAME OVER', boardW / 2, boardH / 2 - 22);
+        ctx.fillText(mode === 'duo' ? 'MANCHE TERMINEE' : 'GAME OVER', boardW / 2, boardH / 2 - 22);
         ctx.fillStyle = '#edf5ff';
         ctx.font = '600 18px Inter, sans-serif';
-        ctx.fillText('Cliquez sur Jouer / Rejouer', boardW / 2, boardH / 2 + 18);
+        ctx.fillText(gameOverText, boardW / 2, boardH / 2 + 10);
         ctx.fillStyle = '#9fb4d8';
         ctx.font = '500 14px Inter, sans-serif';
-        ctx.fillText('Le serpent traverse les bords et se termine seulement sur collision avec lui-même.', boardW / 2, boardH / 2 + 44);
+        ctx.fillText('Cliquez sur Jouer / Rejouer', boardW / 2, boardH / 2 + 36);
       }
     }
 
@@ -655,10 +740,18 @@
 
     window.addEventListener('keydown', (e) => {
       const key = e.key.toLowerCase();
-      if (key === 'z' || e.key === 'ArrowUp') { e.preventDefault(); setDirection(0, -1); }
-      else if (key === 's' || e.key === 'ArrowDown') { e.preventDefault(); setDirection(0, 1); }
-      else if (key === 'q' || e.key === 'ArrowLeft') { e.preventDefault(); setDirection(-1, 0); }
-      else if (key === 'd' || e.key === 'ArrowRight') { e.preventDefault(); setDirection(1, 0); }
+      if (key === 'z') { e.preventDefault(); setDirection(1, 0, -1); }
+      else if (key === 's') { e.preventDefault(); setDirection(1, 0, 1); }
+      else if (key === 'q') { e.preventDefault(); setDirection(1, -1, 0); }
+      else if (key === 'd') { e.preventDefault(); setDirection(1, 1, 0); }
+      else if (mode === 'solo' && e.key === 'ArrowUp') { e.preventDefault(); setDirection(1, 0, -1); }
+      else if (mode === 'solo' && e.key === 'ArrowDown') { e.preventDefault(); setDirection(1, 0, 1); }
+      else if (mode === 'solo' && e.key === 'ArrowLeft') { e.preventDefault(); setDirection(1, -1, 0); }
+      else if (mode === 'solo' && e.key === 'ArrowRight') { e.preventDefault(); setDirection(1, 1, 0); }
+      else if (mode === 'duo' && e.key === 'ArrowUp') { e.preventDefault(); setDirection(2, 0, -1); }
+      else if (mode === 'duo' && e.key === 'ArrowDown') { e.preventDefault(); setDirection(2, 0, 1); }
+      else if (mode === 'duo' && e.key === 'ArrowLeft') { e.preventDefault(); setDirection(2, -1, 0); }
+      else if (mode === 'duo' && e.key === 'ArrowRight') { e.preventDefault(); setDirection(2, 1, 0); }
       else if (key === ' ') { e.preventDefault(); togglePause(); }
       else if (key === 'r') { resetGame(); }
     });
@@ -669,12 +762,14 @@
     document.querySelectorAll('[data-dir]').forEach(btn => {
       btn.addEventListener('click', () => {
         const dir = btn.dataset.dir;
-        if (dir === 'up') setDirection(0, -1);
-        if (dir === 'down') setDirection(0, 1);
-        if (dir === 'left') setDirection(-1, 0);
-        if (dir === 'right') setDirection(1, 0);
+        if (dir === 'up') setDirection(1, 0, -1);
+        if (dir === 'down') setDirection(1, 0, 1);
+        if (dir === 'left') setDirection(1, -1, 0);
+        if (dir === 'right') setDirection(1, 1, 0);
       });
     });
+
+    modeSelect.addEventListener('change', resetGame);
 
     best = loadBest();
     resetGame();
